@@ -10,7 +10,7 @@
     "icons" : {
         "144" : "icon.png"
     },
-    "launch_path" : "https://s4hdev.whchem.com:9943/sap/bc/ui2/flp?sap-client=710&sap-language=ZH#ZMM_RAWMATER-manage", //应用的入口页面，默认为根目录下的index.html；支持网络地址，必须以http://或https://开头 
+    "launch_path" : "loader.html", //应用的入口页面，默认为根目录下的index.html；支持网络地址，必须以http://或https://开头
     "developer" : {
         "name" : "", //开发者名称 
         "email" : "", //开发者邮箱地址 
