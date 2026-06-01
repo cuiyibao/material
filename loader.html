@@ -14,22 +14,15 @@
 var SAP_URL = 'https://s4hdev.whchem.com:9943/sap/bc/ui2/flp?sap-client=710&sap-language=ZH#ZMM_RAWMATER-manage';
 
 // 注入到 SAP WebView 的打印拦截脚本
-var PRINT_INJECT = [
-    'if (!window.__printPatched) {',
-    '  window.__printPatched = true;',
-    '  window.print = function() {',
-    '    try {',
-    '      var html = document.documentElement.outerHTML;',
-    '      plus.printer.print(html, {},',
-    '        function() { console.log("打印成功"); },',
-    '        function(e) { plus.nativeUI.toast("打印失败: " + (e.message || e)); }',
-    '      );',
-    '    } catch(err) {',
-    '      plus.nativeUI.toast("打印组件异常: " + err.message);',
-    '    }',
-    '  };',
-    '}'
-].join('');
+// 注入到 SAP WebView 的代码极简：只覆盖 window.print，跳转自定义 scheme
+// 不在这里调用任何 plus.* API，避免远程 WebView 上下文问题
+var PRINT_INJECT =
+    'if (!window.__printPatched) {' +
+    '  window.__printPatched = true;' +
+    '  window.print = function() {' +
+    '    document.location.href = "sapprint://go";' +
+    '  };' +
+    '}';
 
 function plusReady() {
     plus.navigator.setStatusBarBackground('#D74B28');
@@ -40,12 +33,26 @@ function plusReady() {
         bounce: 'none'
     });
 
-    // SAP 页面每次加载完成后都注入拦截（内部路由跳转也会触发）
+    // 拦截 SAP WebView 内的 URL 跳转，捕获自定义 scheme
+    sapView.addEventListener('overrideUrlLoading', function(e) {
+        if (e.url && e.url.indexOf('sapprint://') === 0) {
+            // 打印逻辑全部在 loader.html（本地 WebView）里执行，plus 调用完全没问题
+            var printUrl = SAP_URL;
+            plus.printer.print(printUrl, {},
+                function() { plus.nativeUI.toast('打印成功'); },
+                function(err) { plus.nativeUI.toast('打印失败: ' + (err.message || err)); }
+            );
+        }
+    }, false);
+
+    var firstLoad = true;
     sapView.addEventListener('loaded', function() {
         sapView.evalJS(PRINT_INJECT);
-        // 第一次加载完成时关闭启动屏并显示 WebView
-        plus.navigator.closeSplashscreen();
-        sapView.show('none');
+        if (firstLoad) {
+            firstLoad = false;
+            plus.navigator.closeSplashscreen();
+            sapView.show('none');
+        }
     }, false);
 
     // 返回键：SAP 页面内有历史则后退，否则弹确认退出
