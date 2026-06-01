@@ -14,15 +14,42 @@
 var SAP_URL = 'https://s4hdev.whchem.com:9943/sap/bc/ui2/flp?sap-client=710&sap-language=ZH#ZMM_RAWMATER-manage';
 
 // 注入到 SAP WebView 的打印拦截脚本
-// 注入到 SAP WebView 的代码极简：只覆盖 window.print，跳转自定义 scheme
-// 不在这里调用任何 plus.* API，避免远程 WebView 上下文问题
+// 注入到 SAP WebView：window.print 被调用时跳转自定义 scheme，不调用任何 plus API
 var PRINT_INJECT =
     'if (!window.__printPatched) {' +
     '  window.__printPatched = true;' +
-    '  window.print = function() {' +
-    '    document.location.href = "sapprint://go";' +
-    '  };' +
+    '  window.print = function() { location.href = "sapprint://go"; };' +
     '}';
+
+function doPrint(sapView) {
+    if (plus.os.name === 'Android') {
+        try {
+            var context = plus.android.runtimeMainActivity();
+            var pm = plus.android.invoke(context, 'getSystemService', 'print');
+            var nativeWV = sapView.nativeInstanceObject();
+            var adapter = plus.android.invoke(nativeWV, 'createPrintDocumentAdapter', '原辅料打印');
+            plus.android.invoke(pm, 'print', '原辅料打印', adapter, null);
+        } catch (e) {
+            plus.nativeUI.toast('打印失败: ' + e.message);
+        }
+    } else if (plus.os.name === 'iOS') {
+        try {
+            var UIPrintInteractionController = plus.ios.importClass('UIPrintInteractionController');
+            var UIPrintInfo = plus.ios.importClass('UIPrintInfo');
+            var controller = UIPrintInteractionController.sharedPrintController();
+            var printInfo = UIPrintInfo.printInfo();
+            printInfo.plusSetAttribute('outputType', 0);
+            printInfo.plusSetAttribute('jobName', '原辅料打印');
+            controller.plusSetAttribute('printInfo', printInfo);
+            var nativeWV = sapView.nativeInstanceObject();
+            var formatter = plus.ios.invoke(nativeWV, 'viewPrintFormatter');
+            controller.plusSetAttribute('printFormatter', formatter);
+            controller.plusCallMethod({presentAnimated: [true, null]});
+        } catch (e) {
+            plus.nativeUI.toast('打印失败: ' + e.message);
+        }
+    }
+}
 
 function plusReady() {
     plus.navigator.setStatusBarBackground('#D74B28');
@@ -33,17 +60,10 @@ function plusReady() {
         bounce: 'none'
     });
 
-    // 拦截 SAP WebView 内的 URL 跳转，捕获自定义 scheme
-    sapView.addEventListener('overrideUrlLoading', function(e) {
-        if (e.url && e.url.indexOf('sapprint://') === 0) {
-            // 打印逻辑全部在 loader.html（本地 WebView）里执行，plus 调用完全没问题
-            var printUrl = SAP_URL;
-            plus.printer.print(printUrl, {},
-                function() { plus.nativeUI.toast('打印成功'); },
-                function(err) { plus.nativeUI.toast('打印失败: ' + (err.message || err)); }
-            );
-        }
-    }, false);
+    // 拦截自定义 scheme，触发原生打印
+    sapView.overrideUrlLoading({mode: 'reject', match: 'sapprint://.*'}, function(e) {
+        doPrint(sapView);
+    });
 
     var firstLoad = true;
     sapView.addEventListener('loaded', function() {
